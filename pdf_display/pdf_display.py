@@ -11,6 +11,13 @@ from xblockutils.studio_editable import StudioEditableXBlockMixin
 from xblockutils.resources import ResourceLoader
 from xblock.exceptions import JsonHandlerError
 
+# Add JsonResponse import/fallback up front so handlers can always use it
+try:
+    from django.http import JsonResponse
+except Exception:
+    def JsonResponse(data, **kwargs):
+        return HttpResponse(json.dumps(data), content_type='application/json', **kwargs)
+
 logger = logging.getLogger(__name__)
 loader = ResourceLoader(__name__)
 
@@ -128,25 +135,41 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
     @XBlock.handler
     def upload_pdf(self, request, suffix=''):
         try:
-            environ = request.environ
-            content_type = environ.get('CONTENT_TYPE', '')
-            if 'multipart/form-data' not in content_type:
-                return JsonResponse({'success': False, 'error': 'Invalid request format'})
+            # Prefer Django's request.FILES (works in most Django setups)
+            if hasattr(request, 'FILES') and 'pdf_file' in request.FILES:
+                uploaded = request.FILES['pdf_file']
+                filename = uploaded.name
+                file_stream = uploaded.read()
+                content_length = getattr(uploaded, 'size', len(file_stream))
+                logger.debug("Using Django request.FILES for upload: %s (%d bytes)", filename, content_length)
+            else:
+                # Fallback: try werkzeug parsing (workbench / WSGI)
+                try:
+                    from werkzeug.formparser import parse_form_data
+                    environ = getattr(request, 'environ', None)
+                    if environ is None:
+                        logger.error("No WSGI environ available for upload parsing")
+                        return JsonResponse({'success': False, 'error': 'Invalid request environment'})
+                    _, form, files = parse_form_data(environ)
+                    if 'pdf_file' not in files:
+                        return JsonResponse({'success': False, 'error': 'No file provided'})
+                    uploaded = files['pdf_file']
+                    filename = getattr(uploaded, 'filename', '')
+                    file_stream = uploaded.stream.read()
+                    content_length = getattr(uploaded, 'content_length', len(file_stream))
+                    logger.debug("Using werkzeug parse_form_data for upload: %s (%s bytes)", filename, content_length)
+                except Exception as e:
+                    logger.exception("Multipart parse fallback failed: %s", e)
+                    return JsonResponse({'success': False, 'error': 'Could not parse multipart data'})
 
-            from werkzeug.formparser import parse_form_data
-            _, form, files = parse_form_data(environ)
-
-            if 'pdf_file' not in files:
-                return JsonResponse({'success': False, 'error': 'No file provided'})
-
-            uploaded_file = files['pdf_file']
-            filename = uploaded_file.filename
+            if not filename:
+                return JsonResponse({'success': False, 'error': 'No filename'})
 
             if not filename.lower().endswith('.pdf'):
                 return JsonResponse({'success': False, 'error': 'Only PDF files allowed'})
 
             max_size = 10 * 1024 * 1024
-            if uploaded_file.content_length > max_size:
+            if content_length and content_length > max_size:
                 return JsonResponse({'success': False, 'error': 'File too large (max 10MB)'})
 
             pdf_dir = self.get_pdf_directory()
@@ -158,15 +181,16 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
                 filepath = pdf_dir + filename
                 counter += 1
 
-            default_storage.save(filepath, ContentFile(uploaded_file.stream.read()))
+            default_storage.save(filepath, ContentFile(file_stream))
 
             self.pdf_file = filename
             self.pdf_url = ""
 
+            logger.info("Uploaded PDF saved: %s", filepath)
             return JsonResponse({'success': True, 'filename': filename})
 
         except Exception as e:
-            logger.error(f"Error uploading PDF: {e}")
+            logger.exception("Error uploading PDF: %s", e)
             return JsonResponse({'success': False, 'error': str(e)})
 
     @XBlock.handler
@@ -198,11 +222,3 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
     @staticmethod
     def workbench_scenarios():
         return [("Enhanced PDF Display XBlock", "<pdf_display/>")]
-
-
-# JsonResponse fallback for environments without Django
-try:
-    from django.http import JsonResponse
-except ImportError:
-    def JsonResponse(data, **kwargs):
-        return HttpResponse(json.dumps(data), content_type='application/json', **kwargs)
