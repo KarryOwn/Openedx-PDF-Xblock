@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: pdf-display-xblock
+Version: 0.1
+Summary: An XBlock that displays PDF documents
+License: UNKNOWN
+Requires-Dist: XBlock

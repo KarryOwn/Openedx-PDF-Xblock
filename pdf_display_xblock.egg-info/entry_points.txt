@@ -1,0 +1,2 @@
+[xblock.v1]
+v1.0.0 = pdf_display:PDFDisplayXBlock

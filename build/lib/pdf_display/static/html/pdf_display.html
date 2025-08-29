@@ -1,0 +1,67 @@
+<!-- static/html/pdf_display.html -->
+<div class="pdf-display-xblock">
+    <div class="pdf-header">
+        <h3 class="pdf-title">{pdf_title}</h3>
+        {show_download_button}
+        <div class="pdf-controls">
+            <a href="{pdf_url}" download class="btn btn-primary pdf-download-btn" target="_blank">
+                <i class="fa fa-download"></i> Download PDF
+            </a>
+        </div>
+        {/show_download_button}
+    </div>
+    
+    <div class="pdf-container">
+        {pdf_url}
+        <div class="pdf-viewer-wrapper">
+            <iframe 
+                src="{pdf_url}#toolbar=1&navpanes=1&scrollbar=1" 
+                width="{width}" 
+                height="{height}"
+                class="pdf-iframe"
+                {allow_fullscreen}allowfullscreen{/allow_fullscreen}
+                title="{pdf_title}">
+            </iframe>
+            
+            <!-- Fallback for browsers that don't support iframe PDF viewing -->
+            <div class="pdf-fallback" style="display: none;">
+                <div class="alert alert-info">
+                    <h4>PDF Viewer Not Available</h4>
+                    <p>Your browser doesn't support inline PDF viewing. Please download the PDF to view it:</p>
+                    <a href="{pdf_url}" class="btn btn-primary" target="_blank">
+                        <i class="fa fa-download"></i> Download PDF
+                    </a>
+                </div>
+            </div>
+        </div>
+        {/pdf_url}
+        
+        {^pdf_url}
+        <div class="pdf-placeholder">
+            <div class="alert alert-warning">
+                <h4>No PDF Configured</h4>
+                <p>Please configure a PDF URL in the course authoring interface.</p>
+            </div>
+        </div>
+        {/pdf_url}
+    </div>
+    
+    <!-- Loading indicator -->
+    <div class="pdf-loading" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fa fa-spinner fa-spin"></i>
+            <p>Loading PDF...</p>
+        </div>
+    </div>
+    
+    <!-- Error message -->
+    <div class="pdf-error" style="display: none;">
+        <div class="alert alert-danger">
+            <h4>Error Loading PDF</h4>
+            <p>There was an error loading the PDF. Please try downloading it directly:</p>
+            <a href="{pdf_url}" class="btn btn-primary" target="_blank">
+                <i class="fa fa-download"></i> Download PDF
+            </a>
+        </div>
+    </div>
+</div>

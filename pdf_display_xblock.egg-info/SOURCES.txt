@@ -1,0 +1,14 @@
+README.rst
+setup.py
+pdf_display/__init__.py
+pdf_display/pdf_display.py
+pdf_display/static/README.txt
+pdf_display/static/css/pdf_display.css
+pdf_display/static/html/pdf_display.html
+pdf_display/static/js/src/pdf_display.js
+pdf_display_xblock.egg-info/PKG-INFO
+pdf_display_xblock.egg-info/SOURCES.txt
+pdf_display_xblock.egg-info/dependency_links.txt
+pdf_display_xblock.egg-info/entry_points.txt
+pdf_display_xblock.egg-info/requires.txt
+pdf_display_xblock.egg-info/top_level.txt

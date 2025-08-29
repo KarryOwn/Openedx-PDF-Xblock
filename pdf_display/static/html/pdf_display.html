@@ -1,0 +1,59 @@
+<!-- static/html/pdf_display.html -->
+<div class="pdf-display-xblock">
+    <div class="pdf-header">
+        <h3>{{ pdf_title }}</h3>
+        {% if show_download_button and pdf_url %}
+        <div class="pdf-controls">
+            <a href="{{ pdf_url }}" download target="_blank" class="btn btn-primary">
+                Download PDF
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if available_pdfs %}
+    <div class="pdf-selector">
+        <label for="pdf-select">Choose PDF:</label>
+        <select id="pdf-select" class="pdf-select">
+            <option value="">Select a PDF...</option>
+            {% for pdf in available_pdfs %}
+            <option value="{{ pdf.path }}" {% if pdf.path == current_pdf_file %}selected{% endif %}>
+                {{ pdf.name }} ({{ pdf.size }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+
+    {% if allow_upload %}
+    <div class="pdf-upload">
+        <form id="pdf-upload-form" enctype="multipart/form-data">
+            <div class="upload-area">
+                <input type="file" id="pdf-file-input" accept=".pdf" />
+                <button type="submit" class="btn btn-success" id="upload-btn">Upload PDF</button>
+            </div>
+            <div id="upload-status" class="upload-status"></div>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="pdf-content">
+        {% if pdf_url %}
+        <iframe id="pdf-iframe" 
+                src="{{ pdf_url }}"
+                width="{{ width }}"
+                height="{{ height }}"
+                style="border: 1px solid #ccc; display: block;"
+                title="{{ pdf_title }}">
+            <p>Your browser does not support PDFs.
+               <a href="{{ pdf_url }}" target="_blank">Download the PDF</a>.
+            </p>
+        </iframe>
+        {% else %}
+        <div class="alert alert-warning">
+            <strong>No PDF selected.</strong><br>
+            Please select a PDF from the list above or upload a new one.
+        </div>
+        {% endif %}
+    </div>
+</div>
