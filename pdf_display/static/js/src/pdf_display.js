@@ -1,43 +1,33 @@
-// static/js/pdf_display.js
-
 function PDFDisplayXBlock(runtime, element) {
     'use strict';
-    
-    console.log('Enhanced PDF XBlock initialized');
 
-    // Cache DOM elements
-    var pdfSelect = element.querySelector('#pdf-select');
-    var pdfIframe = element.querySelector('#pdf-iframe');
-    var uploadForm = element.querySelector('#pdf-upload-form');
-    var uploadStatus = element.querySelector('#upload-status');
-    var uploadBtn = element.querySelector('#upload-btn');
-    var fileInput = element.querySelector('#pdf-file-input');
+    console.log('PDFDisplayXBlock initialized');
 
-    // Initialize event listeners
-    initializeEventListeners();
-    
+    const pdfSelect = element.querySelector('#pdf-select');
+    const pdfIframe = element.querySelector('#pdf-iframe');
+    const uploadForm = element.querySelector('#pdf-upload-form');
+    const uploadStatus = element.querySelector('#upload-status');
+    const uploadBtn = element.querySelector('#upload-btn');
+    const fileInput = element.querySelector('#pdf-file-input');
+
+    const selectHandlerUrl = runtime.handlerUrl(element, 'select_pdf');
+    const uploadHandlerUrl = runtime.handlerUrl(element, 'upload_pdf');
+
     /**
-     * Initialize all event listeners
+     * Initialize event listeners
      */
-    function initializeEventListeners() {
-        // PDF selection handler
+    function init() {
         if (pdfSelect) {
             pdfSelect.addEventListener('change', handlePDFSelection);
         }
-
-        // File upload handler
         if (uploadForm) {
             uploadForm.addEventListener('submit', handleFileUpload);
         }
-
-        // File input change handler for validation
         if (fileInput) {
-            fileInput.addEventListener('change', handleFileInputChange);
+            fileInput.addEventListener('change', validateFile);
         }
-
-        // PDF iframe handlers
         if (pdfIframe) {
-            setupIframeHandlers();
+            setupIframeLoading();
         }
     }
 
@@ -45,18 +35,12 @@ function PDFDisplayXBlock(runtime, element) {
      * Handle PDF selection from dropdown
      */
     function handlePDFSelection() {
-        var selectedFile = pdfSelect.value;
-        
-        if (!selectedFile) {
-            return;
-        }
+        const selectedFile = pdfSelect.value;
+        if (!selectedFile) return;
 
-        // Show loading state
-        showLoadingState(pdfSelect);
+        setLoading(pdfSelect, true);
 
-        var handlerUrl = runtime.handlerUrl(element, 'select_pdf');
-        
-        fetch(handlerUrl, {
+        fetch(selectHandlerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -64,241 +48,149 @@ function PDFDisplayXBlock(runtime, element) {
             },
             body: JSON.stringify({ file: selectedFile })
         })
-        .then(function(response) {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(function(data) {
+        .then(res => res.json())
+        .then(data => {
             if (data.success) {
-                // Reload page to show selected PDF
                 location.reload();
             } else {
                 throw new Error(data.error || 'Failed to select PDF');
             }
         })
-        .catch(function(error) {
-            console.error('Error selecting PDF:', error);
-            showUploadStatus('Error selecting PDF: ' + error.message, 'error');
+        .catch(err => {
+            console.error('Select PDF error:', err);
+            showStatus(`Error selecting PDF: ${err.message}`, 'error');
         })
-        .finally(function() {
-            hideLoadingState(pdfSelect);
-        });
+        .finally(() => setLoading(pdfSelect, false));
     }
 
     /**
-     * Handle file input change for validation
+     * Validate selected file before upload
      */
-    function handleFileInputChange() {
-        var file = fileInput.files[0];
-        
-        if (file) {
-            // Validate file type
-            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                showUploadStatus('Please select a valid PDF file.', 'error');
-                fileInput.value = '';
-                return;
-            }
+    function validateFile() {
+        const file = fileInput.files[0];
+        if (!file) return;
 
-            // Validate file size (10MB limit)
-            var maxSize = 10 * 1024 * 1024; // 10MB
-            if (file.size > maxSize) {
-                showUploadStatus('File too large. Maximum size is 10MB.', 'error');
-                fileInput.value = '';
-                return;
-            }
-
-            // Clear any previous error messages
-            hideUploadStatus();
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            showStatus('Please select a valid PDF file.', 'error');
+            fileInput.value = '';
+            return;
         }
+        if (file.size > 10 * 1024 * 1024) {
+            showStatus('File too large (max 10MB).', 'error');
+            fileInput.value = '';
+            return;
+        }
+        hideStatus();
     }
 
     /**
-     * Handle file upload
+     * Handle PDF upload
      */
-    function handleFileUpload(e) {
-        e.preventDefault();
-        
-        var file = fileInput.files[0];
-        
+    function handleFileUpload(event) {
+        event.preventDefault();
+        const file = fileInput.files[0];
         if (!file) {
-            showUploadStatus('Please select a PDF file to upload.', 'error');
+            showStatus('Please select a file to upload.', 'error');
             return;
         }
 
-        // Final validation before upload
-        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-            showUploadStatus('Please select a valid PDF file.', 'error');
-            return;
-        }
-
-        var formData = new FormData();
+        const formData = new FormData();
         formData.append('pdf_file', file);
 
-        // Update UI for upload state
-        setUploadingState(true);
+        setUploading(true);
 
-        var handlerUrl = runtime.handlerUrl(element, 'upload_pdf');
-        
-        fetch(handlerUrl, {
+        fetch(uploadHandlerUrl, {
             method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            },
             body: formData
         })
-        .then(function(response) {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(function(data) {
+        .then(res => res.json())
+        .then(data => {
             if (data.success) {
-                showUploadStatus('PDF uploaded successfully!', 'success');
-                // Reset form
-                uploadForm.reset();
-                // Reload page to show uploaded file
-                setTimeout(function() {
-                    location.reload();
-                }, 1500);
+                showStatus('Upload successful! Reloading...', 'success');
+                setTimeout(() => location.reload(), 1500);
             } else {
                 throw new Error(data.error || 'Upload failed');
             }
         })
-        .catch(function(error) {
-            console.error('Upload error:', error);
-            showUploadStatus('Upload failed: ' + error.message, 'error');
+        .catch(err => {
+            console.error('Upload error:', err);
+            showStatus(`Upload failed: ${err.message}`, 'error');
         })
-        .finally(function() {
-            setUploadingState(false);
-        });
+        .finally(() => setUploading(false));
     }
 
     /**
-     * Setup iframe event handlers
+     * Setup iframe loading indicator
      */
-    function setupIframeHandlers() {
-        pdfIframe.addEventListener('load', function() {
-            console.log('PDF loaded successfully');
-            hideLoadingState(pdfIframe.parentNode);
-        });
-
-        pdfIframe.addEventListener('error', function() {
-            console.error('Error loading PDF');
-            showIframeError();
-        });
-
-        // Show loading state initially
-        showLoadingState(pdfIframe.parentNode);
+    function setupIframeLoading() {
+        showLoadingOverlay(pdfIframe.parentNode);
+        pdfIframe.addEventListener('load', () => hideLoadingOverlay(pdfIframe.parentNode));
+        pdfIframe.addEventListener('error', () => showIframeError());
     }
 
-    /**
-     * Show iframe error message
-     */
     function showIframeError() {
-        var errorHTML = '<div class="alert alert-warning">' +
-                       '<strong>Error loading PDF.</strong><br>' +
-                       'Please check the file or try a different PDF.' +
-                       '</div>';
-        pdfIframe.parentNode.innerHTML = errorHTML;
+        pdfIframe.parentNode.innerHTML = `
+            <div class="alert alert-warning">
+                <strong>Error loading PDF.</strong><br>
+                Please check the file or try a different PDF.
+            </div>`;
     }
 
     /**
-     * Show upload status message
+     * UI helpers
      */
-    function showUploadStatus(message, type) {
+    function showStatus(message, type) {
         if (!uploadStatus) return;
-        
         uploadStatus.textContent = message;
-        uploadStatus.className = 'upload-status ' + type;
-        
-        // Auto-hide success messages
-        if (type === 'success') {
-            setTimeout(function() {
-                hideUploadStatus();
-            }, 5000);
+        uploadStatus.className = `upload-status ${type}`;
+        uploadStatus.style.display = 'block';
+    }
+
+    function hideStatus() {
+        if (uploadStatus) uploadStatus.style.display = 'none';
+    }
+
+    function setUploading(isUploading) {
+        if (uploadBtn) {
+            uploadBtn.disabled = isUploading;
+            uploadBtn.textContent = isUploading ? 'Uploading...' : 'Upload PDF';
+        }
+        if (fileInput) fileInput.disabled = isUploading;
+    }
+
+    function setLoading(el, isLoading) {
+        if (el) {
+            if (isLoading) {
+                el.classList.add('loading');
+            } else {
+                el.classList.remove('loading');
+            }
         }
     }
 
-    /**
-     * Hide upload status message
-     */
-    function hideUploadStatus() {
-        if (!uploadStatus) return;
-        
-        uploadStatus.style.display = 'none';
-        uploadStatus.className = 'upload-status';
+    function showLoadingOverlay(container) {
+        const overlay = document.createElement('div');
+        overlay.className = 'loading-overlay';
+        overlay.textContent = 'Loading...';
+        container.appendChild(overlay);
     }
 
-    /**
-     * Set uploading state UI
-     */
-    function setUploadingState(isUploading) {
-        if (!uploadBtn || !fileInput) return;
-        
-        uploadBtn.disabled = isUploading;
-        fileInput.disabled = isUploading;
-        
-        if (isUploading) {
-            uploadBtn.textContent = 'Uploading...';
-            uploadBtn.classList.add('loading');
-        } else {
-            uploadBtn.textContent = 'Upload PDF';
-            uploadBtn.classList.remove('loading');
-        }
+    function hideLoadingOverlay(container) {
+        const overlay = container.querySelector('.loading-overlay');
+        if (overlay) container.removeChild(overlay);
     }
 
-    /**
-     * Show loading state for element
-     */
-    function showLoadingState(element) {
-        if (element) {
-            element.classList.add('loading');
-        }
-    }
+    init();
 
     /**
-     * Hide loading state for element
-     */
-    function hideLoadingState(element) {
-        if (element) {
-            element.classList.remove('loading');
-        }
-    }
-
-    /**
-     * Utility function to handle errors gracefully
-     */
-    function handleError(error, context) {
-        console.error('PDF XBlock Error (' + context + '):', error);
-        
-        // Show user-friendly error message
-        var message = 'An error occurred. Please try again.';
-        if (error.message) {
-            message = error.message;
-        }
-        
-        showUploadStatus(message, 'error');
-    }
-
-    /**
-     * Public API - methods that can be called from outside
+     * Public API
      */
     return {
-        // Method to refresh the PDF list (can be called externally)
-        refresh: function() {
-            location.reload();
-        },
-        
-        // Method to show a message (can be called externally)
-        showMessage: function(message, type) {
-            showUploadStatus(message, type || 'info');
-        },
-        
-        // Method to get current PDF info
-        getCurrentPDF: function() {
-            return {
-                url: pdfIframe ? pdfIframe.src : null,
-                title: pdfIframe ? p
+        refresh: () => location.reload(),
+        showMessage: (msg, type) => showStatus(msg, type || 'info'),
+        getCurrentPDF: () => ({
+            url: pdfIframe ? pdfIframe.src : null,
+            title: pdfIframe ? pdfIframe.getAttribute('title') : null
+        })
+    };
+}
