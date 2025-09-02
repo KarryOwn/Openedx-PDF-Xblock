@@ -115,22 +115,114 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
     def studio_view(self, context=None):
         return super(PDFDisplayXBlock, self).studio_view(context)
 
+    @XBlock.json_handler
+    def list_pdfs(self, data, suffix=''):
+        """
+        Return a JSON list of available PDFs discovered in:
+          - default_storage under 'pdfs/' (e.g. MEDIA_ROOT/pdfs)
+          - packaged static folder 'static/files' next to this module (if present)
+        Each entry: {name: filename, url: public_url_or_null}
+        """
+        files = []
+        # 1) default storage (uploads / media)
+        try:
+            storage = default_storage
+            media_prefix = 'pdfs'
+            if storage.exists(media_prefix):
+                _, filenames = storage.listdir(media_prefix)
+            else:
+                # storage.listdir may still work even if prefix doesn't exist; try listing root then filter
+                try:
+                    _, filenames = storage.listdir('')
+                except Exception:
+                    filenames = []
+                # keep only those under explicit folder if any
+                filenames = [f for f in filenames if f.lower().endswith('.pdf')]
+            for fname in filenames:
+                if not fname.lower().endswith('.pdf'):
+                    continue
+                rel = os.path.join(media_prefix, fname)
+                try:
+                    url = storage.url(rel)
+                except Exception:
+                    url = None
+                files.append({'name': fname, 'url': url, 'source': 'storage', 'path': rel})
+        except Exception:
+            logger.exception("Error listing PDFs from default storage")
+
+        # 2) packaged static files (package_dir/static/files)
+        try:
+            pkg_files_dir = os.path.join(os.path.dirname(__file__), 'static', 'files')
+            if os.path.isdir(pkg_files_dir):
+                for fname in sorted(os.listdir(pkg_files_dir)):
+                    if not fname.lower().endswith('.pdf'):
+                        continue
+                    # try to build a local resource URL via runtime if available
+                    url = None
+                    try:
+                        # runtime.local_resource_url(element, path) is available in many XBlock runtimes
+                        url = self.runtime.local_resource_url(self, 'static/files/' + fname)
+                    except Exception:
+                        # fallback: None (client can attempt to fetch via relative static path)
+                        url = None
+                    files.append({'name': fname, 'url': url, 'source': 'package', 'path': os.path.join('static', 'files', fname)})
+        except Exception:
+            logger.exception("Error listing packaged static PDFs")
+
+        return {'success': True, 'files': files}
+
     @XBlock.handler
     def select_pdf(self, request, suffix=''):
+        """
+        Select a PDF to display. Accepts a JSON POST with {file: '<name_or_path_or_url>'}
+        Attempts to resolve a usable URL for the client iframe.
+        """
         try:
-            data = json.loads(request.body.decode('utf-8'))
-            filename = data.get('file', '')
-            if filename:
-                pdf_dir = self.get_pdf_directory()
-                filepath = pdf_dir + filename
-                if default_storage.exists(filepath):
-                    self.pdf_file = filename
-                    self.pdf_url = ""
-                    return JsonResponse({'success': True})
-            return JsonResponse({'success': False, 'error': 'File not found'})
-        except Exception as e:
-            logger.error(f"Error selecting PDF: {e}")
-            return JsonResponse({'success': False, 'error': str(e)})
+            raw = request.body.decode('utf-8') if request.body else ''
+            payload = json.loads(raw) if raw else {}
+        except Exception:
+            payload = request.POST or {}
+        file_value = payload.get('file') or (request.POST.get('file') if hasattr(request, 'POST') else None)
+        if not file_value:
+            return HttpResponse(json.dumps({'success': False, 'error': 'no file provided'}), content_type='application/json')
+
+        # If it's already an absolute/relative URL, accept it
+        if file_value.startswith('http://') or file_value.startswith('https://') or file_value.startswith('/'):
+            self.pdf_url = file_value
+            self.pdf_file = ''
+            return HttpResponse(json.dumps({'success': True, 'url': self.pdf_url}), content_type='application/json')
+
+        # Try default_storage path 'pdfs/<file_value>'
+        try:
+            storage_path = os.path.join('pdfs', file_value)
+            if default_storage.exists(storage_path):
+                try:
+                    url = default_storage.url(storage_path)
+                    self.pdf_url = url
+                    self.pdf_file = file_value
+                    return HttpResponse(json.dumps({'success': True, 'url': url}), content_type='application/json')
+                except Exception:
+                    pass
+        except Exception:
+            logger.exception("Error resolving file in default storage")
+
+        # Try packaged static files path
+        pkg_path = os.path.join(os.path.dirname(__file__), 'static', 'files', file_value)
+        if os.path.isfile(pkg_path):
+            try:
+                url = None
+                try:
+                    url = self.runtime.local_resource_url(self, 'static/files/' + file_value)
+                except Exception:
+                    # leave url None; client may construct relative path
+                    url = None
+                self.pdf_url = url or ''
+                self.pdf_file = file_value
+                return HttpResponse(json.dumps({'success': True, 'url': url}), content_type='application/json')
+            except Exception:
+                logger.exception("Error resolving packaged file url")
+
+        return HttpResponse(json.dumps({'success': False, 'error': 'file not found'}), content_type='application/json')
 
     @XBlock.handler
     def upload_pdf(self, request, suffix=''):

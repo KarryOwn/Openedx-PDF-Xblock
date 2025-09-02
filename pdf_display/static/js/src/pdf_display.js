@@ -5,58 +5,29 @@ function PDFDisplayXBlock(runtime, element) {
 
     const pdfSelect = element.querySelector('#pdf-select');
     const pdfIframe = element.querySelector('#pdf-iframe');
-    const uploadForm = element.querySelector('#pdf-upload-form');
     const uploadStatus = element.querySelector('#upload-status');
-    const uploadBtn = element.querySelector('#upload-btn');
-    const fileInput = element.querySelector('#pdf-file-input');
-    const progressBar = element.querySelector('#upload-progress');
+    const fileInput = element.querySelector('#pdf-file-input'); // may be removed in template
+    const progressBar = element.querySelector('#upload-progress'); // may be removed
     const progressFill = progressBar ? progressBar.querySelector('.bar') : null;
     const iframeLoading = element.querySelector('#iframe-loading');
+    const listBtn = element.querySelector('#list-pdfs-btn');
+    const dynamicPdfList = element.querySelector('#dynamic-pdf-list');
 
     const selectHandlerUrl = runtime.handlerUrl(element, 'select_pdf');
-    const uploadHandlerUrl = runtime.handlerUrl(element, 'upload_pdf');
+    const listHandlerUrl = runtime.handlerUrl(element, 'list_pdfs');
 
     // Helpers
-    function getCookie(name) {
-        const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-        return match ? decodeURIComponent(match[2]) : null;
-    }
-
-    function announce(msg) {
-        if (!uploadStatus) return;
-        uploadStatus.textContent = msg;
-        uploadStatus.className = 'upload-status';
-    }
-
     function showStatus(message, type) {
         if (!uploadStatus) return;
         uploadStatus.textContent = message;
-        uploadStatus.className = `upload-status ${type}`;
+        uploadStatus.className = `upload-status ${type || ''}`;
         uploadStatus.style.display = 'block';
     }
-
     function hideStatus() {
         if (!uploadStatus) return;
         uploadStatus.style.display = 'none';
         uploadStatus.textContent = '';
         uploadStatus.className = 'upload-status';
-    }
-
-    function setUploading(isUploading) {
-        if (uploadBtn) {
-            uploadBtn.disabled = isUploading;
-            uploadBtn.textContent = isUploading ? 'Uploading...' : 'Upload PDF';
-        }
-        if (fileInput) fileInput.disabled = isUploading;
-        if (progressBar) progressBar.style.display = isUploading ? 'block' : 'none';
-        if (!isUploading && progressFill) progressFill.style.width = '0%';
-    }
-
-    function setProgress(percent) {
-        if (progressFill) {
-            progressFill.style.width = Math.min(100, Math.max(0, percent)) + '%';
-            progressBar.setAttribute('aria-valuenow', String(Math.round(percent)));
-        }
     }
 
     function setLoading(el, isLoading) {
@@ -73,177 +44,112 @@ function PDFDisplayXBlock(runtime, element) {
         if (iframeLoading) iframeLoading.classList.add('hidden');
     }
 
-    // Validate file client-side
-    function validateFile() {
-        const file = fileInput.files && fileInput.files[0];
-        if (!file) return true;
-        if (!file.name.toLowerCase().endsWith('.pdf')) {
-            showStatus('Please select a valid PDF file.', 'error');
-            fileInput.value = '';
-            return false;
+    // Populate select with server-provided file list
+    function populateList(files) {
+        const select = pdfSelect;
+        if (!select) return;
+        // ensure selector visible
+        if (dynamicPdfList) dynamicPdfList.style.display = 'block';
+        // clear existing options but keep placeholder
+        const placeholder = select.querySelector('option[value=""]') || null;
+        select.innerHTML = '';
+        if (placeholder) select.appendChild(placeholder);
+        files.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.path || f.name || f.url || f.name;
+            opt.textContent = f.name + (f.size ? ` (${f.size})` : '');
+            // store url on DOM node for quick client-side use
+            if (f.url) opt.setAttribute('data-url', f.url);
+            select.appendChild(opt);
+        });
+        // if any files, select first and display it
+        if (files.length) {
+            select.selectedIndex = 1; // first actual file
+            const firstOpt = select.options[select.selectedIndex];
+            const url = firstOpt.getAttribute('data-url') || firstOpt.value;
+            if (pdfIframe && url) {
+                showLoadingOverlay();
+                pdfIframe.src = url;
+            }
+            // also notify server to persist selection (optional)
+            selectSelectionOnServer(firstOpt.value);
         }
-        if (file.size > 10 * 1024 * 1024) {
-            showStatus('File too large (max 10MB).', 'error');
-            fileInput.value = '';
-            return false;
-        }
-        hideStatus();
-        return true;
     }
 
-    // Use XHR for upload to get progress reporting reliably
-    function uploadWithXHR(url, formData) {
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-
-            // Add CSRF header if present (useful in many deployments)
-            const csrftoken = getCookie('csrftoken') || getCookie('XSRF-TOKEN');
-            if (csrftoken) xhr.setRequestHeader('X-CSRFToken', csrftoken);
-
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-
-            xhr.upload.onprogress = function (e) {
-                if (e.lengthComputable) {
-                    const percent = (e.loaded / e.total) * 100;
-                    setProgress(percent);
-                }
-            };
-
-            xhr.onload = function () {
-                const contentType = xhr.getResponseHeader('Content-Type') || '';
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    try {
-                        const json = contentType.indexOf('application/json') !== -1 ? JSON.parse(xhr.responseText) : { success: true, raw: xhr.responseText };
-                        resolve(json);
-                    } catch (err) {
-                        reject(new Error('Invalid JSON response from server'));
-                    }
-                } else {
-                    let message = `Upload failed (status ${xhr.status})`;
-                    try {
-                        const json = JSON.parse(xhr.responseText);
-                        message = json.error || json.message || message;
-                    } catch (e) {}
-                    reject(new Error(message));
-                }
-            };
-
-            xhr.onerror = function () {
-                reject(new Error('Network error during file upload'));
-            };
-
-            xhr.send(formData);
+    function selectSelectionOnServer(value) {
+        // tell the XBlock which file was selected (server will attempt to resolve)
+        fetch(selectHandlerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ file: value })
+        }).then(res => {
+            if (!res.ok) throw new Error('Server error');
+            return res.json().catch(() => ({}));
+        }).then(data => {
+            if (!data.success) {
+                console.warn('select_pdf response', data);
+            }
+        }).catch(err => {
+            console.warn('Error notifying server of selection', err);
         });
     }
 
-    // Handle selection of a PDF from dropdown
-    function handlePDFSelection() {
-        const selectedFile = pdfSelect.value;
-        if (!selectedFile) return;
-        setLoading(pdfSelect, true);
-        showLoadingOverlay();
-
-        fetch(selectHandlerUrl, {
+    // Request list of PDFs from server and populate selector
+    function requestList() {
+        if (!listHandlerUrl) return;
+        setLoading(listBtn, true);
+        showStatus('Fetching available PDFs...', '');
+        fetch(listHandlerUrl, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({ file: selectedFile })
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(res => {
             if (!res.ok) throw new Error('Server returned ' + res.status);
-            return res.json().catch(() => { throw new Error('Invalid JSON response from server'); });
+            return res.json();
         })
         .then(data => {
-            if (data.success) {
-                // force reload to get updated XBlock state
-                location.reload();
-            } else {
-                throw new Error(data.error || 'Failed to select PDF');
-            }
+            if (!data.success) throw new Error('Failed to list PDFs');
+            populateList(data.files || []);
+            hideStatus();
         })
         .catch(err => {
-            console.error('Select PDF error:', err);
-            showStatus(`Error selecting PDF: ${err.message}`, 'error');
-            hideLoadingOverlay();
+            console.error('Error listing PDFs', err);
+            showStatus('Could not retrieve PDFs: ' + (err.message || ''), 'error');
         })
-        .finally(() => {
-            setLoading(pdfSelect, false);
-        });
+        .finally(() => setLoading(listBtn, false));
     }
 
-    // Handle upload form submit
-    function handleFileUpload(event) {
-        event.preventDefault();
-        if (!validateFile()) return;
-        const file = fileInput.files && fileInput.files[0];
-        if (!file) {
-            showStatus('Please select a file to upload.', 'error');
-            return;
+    // When user changes select manually
+    function handlePDFSelection() {
+        const selectedOpt = pdfSelect && pdfSelect.options[pdfSelect.selectedIndex];
+        if (!selectedOpt) return;
+        const value = selectedOpt.value;
+        const url = selectedOpt.getAttribute('data-url') || value;
+        if (pdfIframe && url) {
+            showLoadingOverlay();
+            pdfIframe.src = url;
         }
-
-        const formData = new FormData();
-        formData.append('pdf_file', file);
-
-        setUploading(true);
-        showStatus('Uploading...', ''); // neutral message
-
-        uploadWithXHR(uploadHandlerUrl, formData)
-        .then(data => {
-            if (data && data.success) {
-                showStatus('Upload successful — reloading...', 'success');
-                setTimeout(() => location.reload(), 1100);
-            } else {
-                throw new Error((data && data.error) || 'Upload failed');
-            }
-        })
-        .catch(err => {
-            console.error('Upload error:', err);
-            showStatus(`Upload failed: ${err.message}`, 'error');
-        })
-        .finally(() => {
-            setUploading(false);
-            setProgress(0);
-        });
+        // notify server to persist selection
+        selectSelectionOnServer(value);
     }
 
     function setupIframeLoading() {
         if (!pdfIframe) return;
-        // show overlay until iframe loads
         if (!iframeLoading) return;
         showLoadingOverlay();
         pdfIframe.addEventListener('load', () => {
             hideLoadingOverlay();
         }, { once: true });
-
         pdfIframe.addEventListener('error', () => {
             hideLoadingOverlay();
-            const parent = pdfIframe.parentNode;
-            if (parent) {
-                parent.innerHTML = `
-                    <div class="alert alert-warning">
-                        <strong>Error loading PDF.</strong><br>
-                        Please check the file or try a different PDF.
-                    </div>`;
-            }
+            console.warn('Error loading PDF in iframe');
         }, { once: true });
     }
 
     function init() {
-        if (pdfSelect) {
-            pdfSelect.addEventListener('change', handlePDFSelection);
-        }
-        if (uploadForm) {
-            uploadForm.addEventListener('submit', handleFileUpload);
-        }
-        if (fileInput) {
-            fileInput.addEventListener('change', validateFile);
-        }
-        if (pdfIframe) {
-            setupIframeLoading();
-        }
+        if (listBtn) listBtn.addEventListener('click', requestList);
+        if (pdfSelect) pdfSelect.addEventListener('change', handlePDFSelection);
+        if (pdfIframe) setupIframeLoading();
     }
 
     init();

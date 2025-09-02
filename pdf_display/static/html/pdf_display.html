@@ -2,13 +2,17 @@
 <div class="pdf-display-xblock" aria-live="polite">
     <div class="pdf-header">
         <h3 id="pdf-display-title">{{ pdf_title }}</h3>
-        {% if show_download_button and pdf_url %}
-        <div class="pdf-controls">
+        <div class="pdf-controls" role="group" aria-label="PDF controls">
+            {% if show_download_button and pdf_url %}
             <a href="{{ pdf_url }}" download target="_blank" class="btn btn-primary" aria-label="Download PDF">
                 Download PDF
             </a>
+            {% endif %}
+            <!-- New: button to list packaged / available PDFs -->
+            <button type="button" id="list-pdfs-btn" class="btn btn-primary" aria-controls="pdf-select">
+                Show available PDFs
+            </button>
         </div>
-        {% endif %}
     </div>
 
     {% if available_pdfs %}
@@ -23,24 +27,13 @@
             {% endfor %}
         </select>
     </div>
-    {% endif %}
-
-    {% if allow_upload %}
-    <div class="pdf-upload" role="form" aria-label="Upload PDF">
-        <form id="pdf-upload-form" method="post" enctype="multipart/form-data" novalidate>
-            <div class="upload-area">
-                <label for="pdf-file-input" class="sr-only">PDF file</label>
-                <input type="file" id="pdf-file-input" name="pdf_file" accept=".pdf" aria-describedby="upload-help" />
-                <button type="submit" class="btn btn-success" id="upload-btn">Upload PDF</button>
-            </div>
-
-            <div class="progress" id="upload-progress" aria-hidden="true" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-                <div class="bar" style="width: 0%;"></div>
-            </div>
-
-            <div id="upload-status" class="upload-status" role="status" aria-live="polite"></div>
-            <div id="upload-help" class="sr-only">Accepted format: PDF. Max size: 10MB.</div>
-        </form>
+    {% else %}
+    <!-- keep selector area (will be populated dynamically) -->
+    <div class="pdf-selector" role="region" aria-labelledby="pdf-display-title" id="dynamic-pdf-list" style="display:none;">
+        <label for="pdf-select">Choose PDF:</label>
+        <select id="pdf-select" class="pdf-select" aria-label="Choose PDF">
+            <option value="">Select a PDF...</option>
+        </select>
     </div>
     {% endif %}
 
@@ -63,7 +56,7 @@
         {% else %}
         <div class="alert alert-warning">
             <strong>No PDF selected.</strong><br>
-            Please select a PDF from the list above or upload a new one.
+            Please select a PDF from the list above.
         </div>
         {% endif %}
     </div>
