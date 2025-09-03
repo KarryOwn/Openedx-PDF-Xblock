@@ -10,6 +10,7 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
     """
     Minimal PDF Display XBlock - Everything inline to avoid file issues
     """
+    category = "html"
 
     display_name = String(
         display_name="Display Name",
