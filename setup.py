@@ -33,7 +33,7 @@ setup(
     ],
     entry_points={
         'xblock.v1': [
-            'v1.0.0 = pdf_display:PDFDisplayXBlock',
+            'pdf_display = pdf_display:PDFDisplayXBlock',
         ]
     },
     package_data=package_data("pdf_display", ["static", "public"]),

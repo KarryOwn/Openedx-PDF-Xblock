@@ -10,7 +10,9 @@ class PDFDisplayXBlock(StudioEditableXBlockMixin, XBlock):
     """
     Minimal PDF Display XBlock - Everything inline to avoid file issues
     """
-    category = "html"
+    @classmethod
+    def category(cls):
+        return "advanced"
 
     display_name = String(
         display_name="Display Name",
